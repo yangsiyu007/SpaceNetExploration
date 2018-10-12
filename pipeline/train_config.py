@@ -21,8 +21,8 @@ TRAIN = {
 
     'num_workers': 4,  # how many subprocesses to use for data loading
     'train_batch_size': 10,
-    'val_batch_size': 4,
-    'test_batch_size': 4,
+    'val_batch_size': 10,
+    'test_batch_size': 10,
 
     'starting_checkpoint_path': '',  # checkpoint .tar to train from, empty if training from scratch
     'loss_weights': [0.1, 0.8, 0.1],  # weight given to loss for pixels of background, building interior and building border classes

@@ -78,7 +78,7 @@ python python/evaluateScene.py ground_truth.csv proposal.csv
 
 Bing team's [announcement](https://blogs.bing.com/maps/2018-06/microsoft-releases-125-million-building-footprints-in-the-us-as-open-data) that they released a large quantity of building footprints in the US in support of the Open Street Map community, and [article](https://github.com/Microsoft/USBuildingFootprints) briefly describing their method of extracting them.
 
-[Blog post](http://jeffwen.com/2018/02/23/road_extraction) and code on road extraction from satellite images by Jeff Wen on a different dataset.
+Very helpful [blog post](http://jeffwen.com/2018/02/23/road_extraction) and [code](https://github.com/jeffwen/road_building_extraction) on road extraction from satellite images by Jeff Wen on a different dataset. We also took inspiration in structuring the training pipeline from this repo.
 
 SpaceNet [road extraction](https://spacenetchallenge.github.io/Competitions/Competition3.html) challenge.
 
