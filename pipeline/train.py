@@ -1,7 +1,9 @@
+
 import logging
 import os
 import sys
 from time import localtime, strftime
+import shutil
 
 import numpy as np
 import torch
@@ -10,6 +12,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import torchvision.transforms as T
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from models.unet.unet import Unet
 from models.unet.unet_baseline import UnetBaseline
@@ -17,19 +20,26 @@ from models.unet.unet_baseline import UnetBaseline
 from utils.data_transforms import ToTensor
 from utils.dataset import SpaceNetDataset
 from utils.logger import Logger
+from utils.train_utils import AverageMeter, log_sample_img_gt, render
 
 import train_config
 
+"""
+train.py
 
-# train.py
-# Execute from the root directory SpaceNetExploration to save checkpoints and logs there.
+Execute from the root directory SpaceNetExploration to save checkpoints and logs there.
+
+It requires train_config.py to be in the path.
+"""
+
 
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')
 logging.info('Using PyTorch version %s.', torch.__version__)
 
 
-# config for the training run
+# config for the run
+evaluate_only = False  # Only evaluate the model on the val set once
 
 use_gpu = train_config.TRAIN['use_gpu']
 dtype = train_config.TRAIN['dtype']
@@ -54,8 +64,7 @@ starting_checkpoint_path = ''
 
 # weights for computing the loss function; absolute values of the weights do not matter
 # [background, interior of building, border of building]
-loss_weights = train_config.TRAIN['loss_weights']
-score_weights_tensor = torch.from_numpy(np.array(loss_weights))
+loss_weights = torch.from_numpy(np.array(train_config.TRAIN['loss_weights']))
 learning_rate = train_config.TRAIN['learning_rate']
 print_every = train_config.TRAIN['print_every']
 total_epochs = train_config.TRAIN['total_epochs']
@@ -73,11 +82,11 @@ logging.info('Using device: %s.', device)
 # data sets and loaders
 dset_train = SpaceNetDataset(data_path_train, split_tags, transform=T.Compose([ToTensor()]))
 loader_train = DataLoader(dset_train, batch_size=train_batch_size, shuffle=True,
-                          num_workers=num_workers) # shuffle True to reshuffle at every epoch
+                          num_workers=num_workers)  # shuffle True to reshuffle at every epoch
 
 dset_val = SpaceNetDataset(data_path_val, split_tags, transform=T.Compose([ToTensor()]))
 loader_val = DataLoader(dset_val, batch_size=val_batch_size, shuffle=True,
-                        num_workers=num_workers) # also reshuffle val set because loss is recorded for the last batch
+                        num_workers=num_workers)  # also reshuffle val set because loss is recorded for the last batch
 
 dset_test = SpaceNetDataset(data_path_test, split_tags, transform=T.Compose([ToTensor()]))
 loader_test = DataLoader(dset_test, batch_size=test_batch_size, shuffle=True,
@@ -87,145 +96,129 @@ logging.info('Training set size: {}, validation set size: {}, test set size: {}'
     len(dset_train), len(dset_val), len(dset_test)))
 
 
+def get_sample_images(which_set='train'):
+    # which_set could be 'train' or 'val'; loader should already have shuffled them; gets one batch
+    loader = loader_train if which_set == 'train' else loader_val
+    images = None
+    image_tensors = None
+    for batch in loader:
+        image_tensors = batch['image']
+        images = batch['image'].cpu().numpy()
+        break  # take the first shuffled batch
+    images_li = []
+    for b in range(0, images.shape[0]):
+        images_li.append(images[b, :, :, :])
+    return images_li, image_tensors
+
+sample_images_train, sample_images_train_tensors = get_sample_images(which_set='train')
+sample_images_val, sample_images_val_tensors = get_sample_images(which_set='val')
+
+
+def visualize_result_on_samples(model, sample_images, logger, step, split='train'):
+    model.eval()
+    with torch.no_grad():
+        sample_images = sample_images.to(device=device, dtype=dtype)
+        scores = model(sample_images).cpu().numpy()
+        images_li = []
+        for i in range(scores.shape[0]):
+            input = scores[i, :, :, :].squeeze()
+            picture = render(input)
+            images_li.append(picture)
+
+        logger.image_summary('result_{}'.format(split), images_li, step)
+
+
 def weights_init(m):
     if isinstance(m, nn.Conv2d):
         nn.init.kaiming_uniform(m.weight)
         m.bias.data.zero_()
 
 
-def train_model(model, optimizer, epochs=1, print_every=10, checkpoint_path=''):
-    """
-    Train a model using the PyTorch Module API.
+def train(loader_train, model, criterion, optimizer, epoch, step, logger_train):
+    for t, data in enumerate(tqdm(loader_train)):
+        # put model to training mode; we put it in eval mode in visualize_result_on_samples for every print_every
+        model.train()
+        step += 1
+        x = data['image'].to(device=device, dtype=dtype)  # move to device, e.g. GPU
+        y = data['target'].to(device=device, dtype=torch.long)  # y is not a int value here; also an image
 
-    Args:
-    model: a PyTorch Module specifying the model to train.
-    optimizer: an Optimizer object we will use to train the model
-    epochs: optionally a Python int giving the number of epochs to train for
+        # forward pass on this batch
+        scores = model(x)
+        loss = criterion(scores, y)
 
-    Returns: logs model accuracies during training.
-    """
-    model = model.to(device=device, dtype=dtype)  # move the model parameters to CPU/GPU
+        # backward pass
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
 
-    score_weights = score_weights_tensor.to(device=device, dtype=dtype)
+        # TensorBoard logging and print a line to stdout; note that the accuracy is wrt the current mini-batch only
+        if step % print_every == 1:
+            # 1. log scalar values (scalar summary)
+            _, preds = scores.max(1)
+            accuracy = (y == preds).float().mean()
 
-    starting_epoch = 0
-    if os.path.isfile(checkpoint_path):
-        logging.info('Loading checkpoint from {0}'.format(checkpoint_path))
-        checkpoint = torch.load(checkpoint_path)
-        model.load_state_dict(checkpoint['state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer'])
-        starting_epoch = checkpoint['epoch'] + 1
-    else:
-        logging.info('No valid checkpoint is provided. Start to train from scratch...')
-        model.apply(weights_init)
+            info = {'minibatch_loss': loss.item(), 'minibatch_accuracy': accuracy.item()}
+            for tag, value in info.items():
+                logger_train.scalar_summary(tag, value, step + 1)
 
-    # create checkpoint dir
-    checkpoint_dir = 'checkpoints/{}'.format(experiment_name)
-    os.makedirs(checkpoint_dir, exist_ok=True)
+            logging.info(
+                'Epoch {}, step {}, train minibatch_loss is {}, train minibatch_accuracy is {}'.format(
+                    epoch, step, info['minibatch_loss'], info['minibatch_accuracy']))
 
-    train_logger = Logger('logs/{}/train'.format(experiment_name))
-    val_logger = Logger('logs/{}/val'.format(experiment_name))
+            # 2. log values and gradients of the parameters (histogram summary)
+            for tag, value in model.named_parameters():
+                tag = tag.replace('.', '/')
+                logger_train.histo_summary(tag, value.data.cpu().numpy(), step + 1)
+                logger_train.histo_summary(tag + '/grad', value.grad.data.cpu().numpy(), step + 1)
 
-    step = 0
+            # 3. log training images (image summary)
+            visualize_result_on_samples(model, sample_images_train_tensors, logger_train, step, split='train')
+            visualize_result_on_samples(model, sample_images_val_tensors, logger_train, step, split='val')
 
-    for e in range(starting_epoch, epochs):
-        logging.info('Epoch {}'.format(e))
-
-        for t, data in enumerate(loader_train):
-            step += 1
-
-            model.train()  # put model to training mode
-
-            x = data['image'].to(device=device, dtype=dtype)  # move to device, e.g. GPU
-            y = data['target'].to(device=device, dtype=torch.long)  # y is not a int value here; also an image
-
-            optimizer.zero_grad()
-
-            scores = model(x)
-            loss = F.cross_entropy(scores, y, score_weights)
-            # loss = F.cross_entropy(scores, y)
-
-            loss.backward()
-            optimizer.step()
-
-            if (step + 1) % print_every == 0:
-                logging.info('Epoch %d, step %d, training loss = %.4f' % (e, step, loss.item()))
-
-                # logging for TensorBoard
-                # 1. log scalar values (scalar summary)
-                _, preds = scores.max(1)
-                accuracy = (y == preds).float().mean()
-
-                info = {'loss': loss.item(), 'accuracy': accuracy.item()}
-                for tag, value in info.items():
-                    train_logger.scalar_summary(tag, value, step + 1)
-
-                # 2. log values and gradients of the parameters (histogram summary)
-                for tag, value in model.named_parameters():
-                    tag = tag.replace('.', '/')
-                    train_logger.histo_summary(tag, value.data.cpu().numpy(), step + 1)
-                    train_logger.histo_summary(tag + '/grad', value.grad.data.cpu().numpy(), step + 1)
-
-                # 3. log training images (image summary)
-                info = {'train_images': x[:5].cpu().numpy()}
-                for tag, images in info.items():
-                    train_logger.image_summary(tag, images, step + 1)
-
-        # save checkpoint every epoch
-        checkpoint_path = os.path.join(checkpoint_dir, 'unet_checkpoint_epoch{}_{}.pth.tar'.format(e, strftime("%Y-%m-%d-%H-%M-%S", localtime())))
-        logging.info('Saving to checkoutpoint file at {}'.format(checkpoint_path))
-        save_checkpoint({
-            'epoch': e,
-            'arch': 'UNet',
-            'state_dict': model.state_dict(),
-            'optimizer': optimizer.state_dict()
-        }, checkpoint_path)
-
-        logging.info('Val accuracy at epoch {}'.format(e))
-        val_loss, val_acc = check_accuracy(loader_val, model)  # loss is loss per sample
+    return step
 
 
-def check_accuracy(loader, model):
-    """Evaluate the model on samples in the loader, and prints accuracy."""
-    print('Calculating val set performance...')
+def evaluate(loader, model, criterion):
+    """Evaluate the model on dataset of the loader"""
+    losses = AverageMeter()
+    accuracies = AverageMeter()
 
     model.eval()  # put model to evaluation mode
-    score_weights = score_weights_tensor.to(device=device, dtype=dtype)
-    acc = 0
-    loss_set = 0
-
     with torch.no_grad():
-        num_correct = 0
-        num_samples = 0
-
         for t, data in enumerate(loader):
             x = data['image'].to(device=device, dtype=dtype)  # move to device, e.g. GPU
             y = data['target'].to(device=device, dtype=torch.long)
             scores = model(x)
 
-            loss = F.cross_entropy(scores, y, score_weights)
-            loss_set += loss.item()
+            loss = criterion(scores, y)
             # DEBUG logging.info('Val loss = %.4f' % loss.item())
 
             _, preds = scores.max(1)
-            num_correct += (preds == y).sum()
-            num_samples += preds.size(0)
+            accuracy = (y == preds).float().mean()
 
-        acc = float(num_correct) / num_samples
-        loss_per_sample = loss_set / num_samples
+            losses.update(loss.item(), x.size(0))
+            accuracies.update(accuracy.item(), 1)  # average already taken for accuracy for each pixel
 
-        logging.info('Got %d / %d correct, accuracy (%.2f)' % (num_correct, num_samples, 100 * acc))
-        logging.info('Loss per sample is (%.2f)' % (loss_per_sample))
-
-    return loss_per_sample, acc
+    return losses.avg, accuracies.avg
 
 
-def save_checkpoint(state, path='../checkpoints/checkpoints.pth.tar'):
+def save_checkpoint(state, is_best, path='../checkpoints/checkpoints.pth.tar', checkpoint_dir='../checkpoints'):
     torch.save(state, path)
+    if is_best:
+        shutil.copyfile(path, os.path.join(checkpoint_dir, 'model_best.pth.tar'))
 
 
 def main():
     num_classes = 3
+
+    # create checkpoint dir
+    checkpoint_dir = 'checkpoints/{}'.format(experiment_name)
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
+    logger_train = Logger('logs/{}/train'.format(experiment_name))
+    logger_val = Logger('logs/{}/val'.format(experiment_name))
+    log_sample_img_gt(sample_images_train, sample_images_val, logger_train, logger_val)
+    logging.info('Logged ground truth image samples')
 
     # larger model
     if model_choice == 'unet':
@@ -236,13 +229,64 @@ def main():
     else:
         sys.exit('Invalid model_choice {}, choose unet_baseline or unet'.format(model_choice))
 
+    model = model.to(device=device, dtype=dtype)  # move the model parameters to CPU/GPU
+
+    criterion = nn.CrossEntropyLoss(weight=loss_weights).to(device=device, dtype=dtype)
+
     # can also use Nesterov momentum in optim.SGD
     # optimizer = optim.SGD(model.parameters(), lr=learning_rate,
     #                     momentum=0.9, nesterov=True)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
-    train_model(model, optimizer, epochs=total_epochs, print_every=print_every,
-                checkpoint_path=starting_checkpoint_path)
+    # resume from a checkpoint if provided
+    starting_epoch = 0
+    best_acc = 0.0
+
+    if os.path.isfile(starting_checkpoint_path):
+        logging.info('Loading checkpoint from {0}'.format(starting_checkpoint_path))
+        checkpoint = torch.load(starting_checkpoint_path)
+        model.load_state_dict(checkpoint['state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        starting_epoch = checkpoint['epoch']
+        best_acc = checkpoint.get('best_acc', 0.0)
+    else:
+        logging.info('No valid checkpoint is provided. Start to train from scratch...')
+        model.apply(weights_init)
+
+    if evaluate_only:
+        evaluate(loader_val, model, criterion)
+        return
+
+    step = starting_epoch * len(dset_train)
+
+    for epoch in range(starting_epoch, total_epochs):
+        logging.info('Epoch {} of {}'.format(epoch, total_epochs))
+
+        # train for one epoch
+        step = train(loader_train, model, criterion, optimizer, epoch, step, logger_train)
+
+        # evaluate on val set
+        logging.info('Evaluating model on the val set at the end of epoch {}...'.format(epoch))
+        val_loss, val_acc = evaluate(loader_val, model, criterion)
+        logging.info('\nEpoch {}, val loss is {}, val accuracy is {}\n'.format(epoch, step, val_loss, val_acc))
+        logger_val.scalar_summary('val_loss', val_loss, step + 1)
+        logger_val.scalar_summary('val_acc', val_acc, step + 1)
+        # log the val images too
+
+        # record the best accuracy; save checkpoint for every epoch
+        is_best = val_acc > best_acc
+        best_acc = max(val_acc, best_acc)
+
+        checkpoint_path = os.path.join(checkpoint_dir,
+                                       'checkpoint_epoch{}_{}.pth.tar'.format(epoch, strftime("%Y-%m-%d-%H-%M-%S", localtime())))
+        logging.info('Saving to checkoutpoint file at {}'.format(checkpoint_path))
+        save_checkpoint({
+            'epoch': epoch + 1,  # saved checkpoints are numbered starting from 1
+            'arch': model_choice,
+            'state_dict': model.state_dict(),
+            'optimizer': optimizer.state_dict(),
+            'best_acc': best_acc
+        }, is_best, checkpoint_path, checkpoint_dir)
 
 
 if __name__ == '__main__':
