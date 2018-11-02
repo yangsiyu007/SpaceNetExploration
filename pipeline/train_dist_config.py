@@ -1,21 +1,28 @@
 import torch
-
+import os
 
 # for explanation also see comments in train.py, top part of file
+
+mount_root = os.environ.get('AZ_BATCHAI_JOB_MOUNT_ROOT', '/yasiyu/mnt/spacenet')
+print('Mount root is : {}'.format(mount_root))
 
 TRAIN = {
     # hardware and framework parameters
     'use_gpu': True,
     'dtype': torch.float32,
-    'cudnn_benchmark': True,
 
-    # paths to data splits
-    'data_path_root': '~/building_extraction/sample_data/', # common part of the path for data_path_train, data_path_val and data_path_test
+    # paths to data splits (input)
+    'data_path_root': os.path.join(mount_root, 'bfs_data_processed'), # common part of the path for data_path_train, data_path_val and data_path_test
     'data_path_train': 'Vegas_8bit_256_train',
     'data_path_val': 'Vegas_8bit_256_val',
     'data_path_test': 'Vegas_8bit_256_test',
 
+    # path to output
+    'tensorboard_path': os.path.join(mount_root, 'afs_spacenet', 'tensorboard'),
+    'out_checkpoint_dir': os.path.join(mount_root, 'bfs_out'),
+    
     # training and model parameters
+    'evaluate_only': False,  # Only evaluate the model on the val set once
     'model_choice': 'unet_baseline',  # 'unet_baseline' or 'unet'
     'feature_scale': 1,  # parameter for the Unet
 
@@ -29,8 +36,8 @@ TRAIN = {
     'learning_rate': 0.5e-3,
     'print_every': 50,  # print every how many steps
     'total_epochs': 15,  # for the walkthrough, we are training for one epoch
-
-    'experiment_name': 'unet_interior_weights', # using weights that emphasize the building interior pixels
 }
 
-
+print('data_path_root: ', TRAIN['data_path_root'])
+print('tensorboard_path: ', TRAIN['tensorboard_path'])
+print('out_checkpoint_dir: ', TRAIN['out_checkpoint_dir'])
