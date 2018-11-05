@@ -24,7 +24,7 @@ logging.basicConfig(level=logging.DEBUG, format='%(levelname)s - %(message)s')
 logging.info('Using PyTorch version %s.', torch.__version__)
 
 
-save_pred_polys = polygonize_config.CONFIG['save_pred_polys']
+save_pred_polygons = polygonize_config.CONFIG['save_pred_polygons']
 
 # Polygonization parameters
 min_polygon_area = polygonize_config.CONFIG['min_polygon_area']
@@ -136,7 +136,7 @@ def mask_to_poly(mask, image_id, count_border_as_background=True):
     return df, polygons
 
 
-def main(cp_path, input_image_dir, out_path, vis_dir=None, save_pred=save_pred_polys):
+def main(cp_path, input_image_dir, out_path, vis_dir=None, save_pred=save_pred_polygons):
     """
     Applies the model at cp_path to input images and output the csv required for SpaceNet to
     compute the F-1 score and other metrics against the ground truth.
