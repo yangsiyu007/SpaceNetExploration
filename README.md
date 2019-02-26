@@ -1,3 +1,5 @@
+*This repository was originally at https://github.com/aiforearth/SpaceNetExploration*. For other Microsoft AI for Earth repositories, search for the topic `#aiforearth` on GitHub or visit them [here](https://github.com/search?l=&q=user%3Amicrosoft+topic%3Aaiforearth&type=Repositories).
+
 # Building Footprint Extraction
 
 ## Overview
