@@ -5,6 +5,8 @@
 ## Overview
 This repository contains a walkthrough demonstrating how to perform semantic segmentation using convolutional neural networks (CNNs) on satellite images to extract the footprints of buildings. We show how to carry out the procedure on an Azure Deep Learning Virtual Machine (DLVM), which are GPU-enabled and have all major frameworks pre-installed so you can start model training straight-away. We use a subset of the data and labels from the [SpaceNet Challenge](http://explore.digitalglobe.com/spacenet), an online repository of freely available satellite imagery released to encourage the application of machine learning to geospatial data.
 
+The blog post that first announced this sample project is [here](https://azure.microsoft.com/en-us/blog/how-to-extract-building-footprints-from-satellite-images-using-deep-learning/) on the Azure Blog.
+
 
 ## Data
 
@@ -80,7 +82,7 @@ python python/evaluateScene.py ground_truth.csv proposal.csv
 
 Bing team's [announcement](https://blogs.bing.com/maps/2018-06/microsoft-releases-125-million-building-footprints-in-the-us-as-open-data) that they released a large quantity of building footprints in the US in support of the Open Street Map community, and [article](https://github.com/Microsoft/USBuildingFootprints) briefly describing their method of extracting them.
 
-[Blog post](http://jeffwen.com/2018/02/23/road_extraction) and code on road extraction from satellite images by Jeff Wen on a different dataset.
+Very helpful [blog post](http://jeffwen.com/2018/02/23/road_extraction) and [code](https://github.com/jeffwen/road_building_extraction) on road extraction from satellite images by Jeff Wen on a different dataset. We also took inspiration in structuring the training pipeline from this repo.
 
 SpaceNet [road extraction](https://spacenetchallenge.github.io/Competitions/Competition3.html) challenge.
 
