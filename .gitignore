@@ -106,4 +106,8 @@ venv.bak/
 # PyCharm
 .idea/
 
+# Mac file system
+.DS_Store
 
+# AML workspace config
+AML/config.json
