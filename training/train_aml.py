@@ -13,7 +13,6 @@ import torchvision.transforms as T
 import train_single_gpu_config as train_config
 from torch.utils.data import DataLoader
 import torch.utils.data.distributed
-from tqdm import tqdm
 
 from models.unet.unet import Unet
 from models.unet.unet_baseline import UnetBaseline
@@ -43,6 +42,8 @@ parser.add_argument('--data_path_root', type=str, default=None,
 parser.add_argument('--out_dir', type=str,
                     help=('Path to directory to save checkpoints and logs in; a folder named experiment_name '
                           'will be created there.'))
+parser.add_argument('--num_epochs', type=int, default=15,
+                    help='number of epochs to run training for.')
 args = parser.parse_args()
 
 # config for the run
@@ -75,7 +76,7 @@ starting_checkpoint_path = train_config.TRAIN['starting_checkpoint_path']
 loss_weights = torch.from_numpy(np.array(train_config.TRAIN['loss_weights']))
 learning_rate = train_config.TRAIN['learning_rate']
 print_every = train_config.TRAIN['print_every']
-total_epochs = train_config.TRAIN['total_epochs']
+num_epochs = args.num_epochs
 
 experiment_name = train_config.TRAIN['experiment_name'] if args.experiment_name is None else args.experiment_name
 
@@ -142,7 +143,7 @@ def weights_init(m):
 
 
 def train(loader_train, model, criterion, optimizer, epoch, step, logger_train):
-    for t, data in enumerate(tqdm(loader_train)):
+    for t, data in enumerate(loader_train):
         # put model to training mode; we put it in eval mode in visualize_result_on_samples for every print_every
         model.train()
         step += 1
@@ -219,12 +220,12 @@ def main():
     num_classes = 3
 
     # create checkpoint dir
-    out_dir = '../out_dir' if args.out_dir is None else args.out_dir
+    out_dir = './outputs' if args.out_dir is None else args.out_dir
     checkpoint_dir = os.path.join(out_dir, experiment_name, 'checkpoints')
     os.makedirs(checkpoint_dir, exist_ok=True)
 
-    logger_train = Logger(os.path.join(out_dir, experiment_name, 'logs', 'train'))
-    logger_val = Logger(os.path.join(out_dir, experiment_name, 'logs', 'val'))
+    logger_train = Logger(os.path.join('./logs', 'train'))
+    logger_val = Logger(os.path.join('./logs', 'val'))
     log_sample_img_gt(sample_images_train, sample_images_val, logger_train, logger_val)
     logging.info('Logged ground truth image samples')
 
@@ -270,8 +271,8 @@ def main():
 
     step = starting_epoch * len(dset_train)
 
-    for epoch in range(starting_epoch, total_epochs):
-        logging.info('Epoch {} of {}'.format(epoch, total_epochs))
+    for epoch in range(starting_epoch, num_epochs):
+        logging.info('Epoch {} of {}'.format(epoch, num_epochs))
 
         # train for one epoch
         step = train(loader_train, model, criterion, optimizer, epoch, step, logger_train)
