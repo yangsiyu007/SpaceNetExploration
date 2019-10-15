@@ -2,10 +2,12 @@ import os
 # Ignore warnings
 import warnings
 
-from skimage import io
+import numpy as np
+from PIL import Image
 from torch.utils.data import Dataset
 
-warnings.filterwarnings("ignore")
+
+warnings.filterwarnings('ignore')
 
 class SpaceNetDataset(Dataset):
     """Class representing a SpaceNet dataset, such as a training set."""
@@ -51,8 +53,8 @@ class SpaceNetDataset(Dataset):
         img_path = os.path.join(self.root_dir, 'annotations', self.image_list[idx])
         target_path = os.path.join(self.root_dir, 'annotations', img_path.replace('.jpg', 'segcls.png'))
 
-        image = io.imread(img_path)
-        target = io.imread(target_path)
+        image = np.array(Image.open(img_path))
+        target = np.array(Image.open(target_path))
         target[target == 100] = 1  # building interior
         target[target == 255] = 2  # border
 

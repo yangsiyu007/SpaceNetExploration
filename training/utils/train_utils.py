@@ -26,8 +26,9 @@ def log_sample_img_gt(train_samples, val_samples, logger_train, logger_val):
     logger_val.image_summary('gt_val', val_samples, 1)
 
 
-colour_map = np.asarray([[0.7,0.7,1],[0.8, 1, 0.8],[0.9,0.6,0.1]], dtype=np.float32)
+colour_map = np.asarray([[0.7,0.7,1], [0.8, 1, 0.8], [0.9,0.6,0.1]], dtype=np.float32)
 def render(softmax, hard=True):
+    # classes x W x H
     sum = np.sum(np.exp(softmax), axis=0)
     for i in range(softmax.shape[0]):
         softmax[i, :, :] = np.exp(softmax[i, :, :]) / sum
@@ -37,12 +38,12 @@ def render(softmax, hard=True):
         hardmax = softmax.argmax(axis=0)
         for c in range(cf):
             for ch in range(3):
-                hardmax_pic[ch,:,:] += (hardmax == c) * colour_map[c, ch]
+                hardmax_pic[ch,:,:] += (hardmax == c) * colour_map[c, ch] * 256
         return hardmax_pic
     else:
         softmax_pic = np.zeros((3, wf, hf))
         for c in range(cf):
             for ch in range(3):
-                softmax_pic[ch, :, :] += softmax[c, :, :] * colour_map[c, ch]
+                softmax_pic[ch, :, :] += softmax[c, :, :] * colour_map[c, ch] * 256
         return softmax_pic
 
