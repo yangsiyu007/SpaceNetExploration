@@ -13,6 +13,7 @@ import torchvision.transforms as T
 import train_single_gpu_config as train_config
 from torch.utils.data import DataLoader
 import torch.utils.data.distributed
+from azureml.core.run import Run
 
 from models.unet.unet import Unet
 from models.unet.unet_baseline import UnetBaseline
@@ -129,6 +130,7 @@ def visualize_result_on_samples(model, sample_images, logger, step, split='train
         scores = model(sample_images).cpu().numpy()
         images_li = []
         for i in range(scores.shape[0]):
+            # these are scores before the final softmax
             input = scores[i, :, :, :].squeeze()
             picture = render(input)
             images_li.append(picture)
@@ -224,8 +226,11 @@ def main():
     checkpoint_dir = os.path.join(out_dir, experiment_name, 'checkpoints')
     os.makedirs(checkpoint_dir, exist_ok=True)
 
-    logger_train = Logger(os.path.join('./logs', 'train'))
-    logger_val = Logger(os.path.join('./logs', 'val'))
+    # write logs to ./logs, which AML uploads to Artifact Service and makes available to a TensorBoard instance.
+    # also log some metrics through AML's Run object
+    run = Run.get_context()
+    logger_train = Logger('train', './logs', run)
+    logger_val = Logger('val', './logs', run)
     log_sample_img_gt(sample_images_train, sample_images_val, logger_train, logger_val)
     logging.info('Logged ground truth image samples')
 
